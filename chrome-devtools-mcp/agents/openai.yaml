@@ -1,0 +1,4 @@
+interface:
+  display_name: "Chrome DevTools MCP"
+  short_description: "Inspect and debug live Chrome pages"
+  default_prompt: "Use $chrome-devtools-mcp to inspect or debug this page in Chrome."

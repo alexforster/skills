@@ -1,0 +1,4 @@
+interface:
+  display_name: "Terminal Emulator MCP"
+  short_description: "Interact with terminal apps and persistent sessions"
+  default_prompt: "Use $terminal-emulator-mcp to interact with this terminal app."
