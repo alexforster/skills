@@ -1,45 +1,40 @@
 ---
 name: agent-swarm
-description: Use when coordinating multiple OMP agents that must agree on shared interfaces before parallel implementation in Git worktrees.
+description: Use when coordinating OMP peer sessions on shared decisions or parallel work; includes swarm messaging, agreement, and safe worktree integration.
 ---
 
 # Agent swarm coordination
 
-Use the swarm to make shared design decisions explicit before parallel code changes. A collection of agents working independently is not coordination.
+Use peer messaging for actual coordination, not as proof of coordination. Explicit user instructions take precedence over this workflow. For a simple communication request, do only the requested messaging; do not impose worktrees or a design vote.
 
-## Before dispatch
+## Choose participants before dispatch
 
-1. Pick one integration owner. Split work by independently owned responsibilities and files; identify shared interfaces and dependencies first.
-2. Resolve dependencies and shared prerequisites before creating task branches. Give each implementation task one worktree, one branch, an exact base commit, and an absolute worktree path.
-3. Put exact model and effort settings on every delegated task. Never assume that an agent inherits the controller's model or effort.
-4. Write one concise interface contract: data ownership, lifecycle, coordinate units, message ordering, error behavior, and which files each task owns.
+- Identify the decision-makers and one integration owner; by default the requesting parent coordinates. Respect an explicitly requested equal-peer process; hold an election only when requested, with one tally owner and a bounded ballot. If work scope is unknown, do not invent assignments or create worktrees. Do not mistake a coordinator's decision for peer consensus.
+- Swarm membership is per top-level OMP runtime. The plugin rejects `task` subagents with `not_joined` (only main agents may join); assigning them `peer_join` or granting a headless launcher does not change their agent kind. Check the current tool/runtime behavior if it has changed.
+- If direct peer coordination is required, use existing authorized top-level peers or explicitly authorized separate top-level sessions. Verify their membership and keep them alive throughout coordination. Starting additional headless participants requires human authorization; `OMP_SWARM_ALLOW_JOIN=1` at launch grants membership and must not be used to bypass a refusal.
+- Ordinary `task` agents can work independently or coordinate via the controller's agent messaging, but are not swarm peers. A relay or proxy cannot establish direct peer participation or consent on someone else's behalf. If direct peer membership is required and unavailable, report the blocker; do not silently downgrade the requirement. Use a controller-mediated alternative only when the user permits it.
+- Give every intended participant the same literal `swarmName` before joining; never independently guess it from a project or role. If no shared name can be established from the user or coordinator, obtain it before joining. If already joined, list members first. Confirm the same `swarmId` and expected ready participants before coordination. `peer_list` returns broker-issued participant UUIDs, distinct from task IDs, process IDs, and display names.
+- A `join_required` result means this runtime is not joined; a `not_joined` restriction on a task agent is not fixed by retrying. A headless `human_grant_required` needs authorization at process launch, not an environment change after startup. Never impersonate a peer or retry a non-retryable refusal indefinitely.
 
-## Join and agree
+## Agree on the work
 
-- The coordinator joins the named swarm with `peer_join`, then verifies membership with `peer_list`.
-- Each participant must join the same swarm and confirm the same contract before editing. Use `peer_send` with broker-issued participant UUIDs; agent names and job IDs are not peer IDs.
-- Require an explicit `AGREED` from every implementation participant. A shared task prompt is useful context, but is not evidence that peers exchanged or accepted the contract.
-- Keep messages concrete: state the interface and invariants, not a general request to “coordinate.”
-- `peer_send` success means the broker accepted the message, not that its recipient read it. Check replies or the mailbox before claiming delivery.
+- Before parallel edits, share a concise, versioned contract covering ownership, files, interfaces, lifecycle, ordering, errors, units where relevant, and integration. State the specific decision and who must agree. For implementations, also assign each owner an exact base commit, branch, absolute worktree path, acceptance criteria, and required model/effort when delegating.
+- Ask each actual decision-maker to review the same contract and explicitly accept or object before dependent edits. Track agreement by participant, contract version, and scope: accepting an interface is not agreement on work allocation, project scope, or later revisions. Resolve objections or report the unresolved decision; silence and broker acceptance are not consent.
+- Change the contract in one authoritative place; notify every affected owner, obtain the required agreement for that revision, and pause dependent work until then. A controller relay must preserve the original participant's explicit answer and be labeled as relayed, never as a direct swarm exchange.
+- Maintain a small shared ledger or existing task record: participant identity and communication route, base/branch/worktree, contract version and scoped agreement, status, verification, blockers, and integration. Preserve evidence of refusals, stops, and uncommitted work; do not present a plan or proxy response as completed work.
 
-## Membership failures
+## Message without feedback loops
 
-- Treat `not_joined` as a real membership failure. Do not claim that a task agent joined, and do not retry a non-retryable error indefinitely.
-- A headless OMP subprocess may require `OMP_SWARM_ALLOW_JOIN=1` at launch. Set it only when the human has explicitly authorized additional headless participants; the flag is an authorization grant, not a workaround for an unapproved join.
-- If task runtimes cannot join, tell the controller and wait for an explicit, controller-mediated contract confirmation. That relay can unblock the work, but it is not direct peer communication. If actual IRC delivery is required, use an authorized OMP subprocess relay, verify broker acceptance, and report whether delivery was confirmed.
-- Record the exact failure and fallback in the task ledger. Never conceal the difference between an agent's direct agreement and a relayed message.
+- Use a concise request stating the action, context, and whether a reply is needed; use `replyTo` with the received message ID when available. An explicit answer such as `AGREED` answers that request; it is not a new request. Do not reply to replies, acknowledgments, pings, or notices merely to acknowledge them. Honor an explicit instruction not to respond. Labels such as `REQUEST`, `REPLY`, and `NOTICE` can clarify intent but are not required to understand a message.
+- Choose priority for the intended delivery, not just the message wording. `normal` (the default) starts a turn when idle and queues a follow-up when busy. `low` only stores a message in the recipient's transient mailbox: it does not wake the recipient or appear as a peer turn. Use it only when the recipient will actually read the mailbox. Use `high` sparingly for timely information worth interrupting the recipient's work; it aborts and replaces a busy turn. OMP hosts without the awaitable abort capability fail closed instead of interrupting.
+- `peer_send` acceptance confirms broker acceptance, not recipient receipt, reading, agreement, or completion. For low priority, the recipient calls `peer_mailbox`, inspects the returned message IDs and explicitly acknowledges only handled messages. Reads alone do not delete. Normal/high messages are delivered through turns, not retained in the low-priority mailbox. Use a requested substantive response when evidence of reading or agreement matters.
+- If a message is ambiguous, inspect its priority, ID, recipient and mailbox/turn before diagnosing loss. Never claim delivery from acceptance alone; do not blindly resend an ambiguous `delivery_unknown` outcome, since delivery may already have happened. Surface offline, authorization, overflow, and delivery errors accurately.
+- A peer-triggered turn with nothing to do needs no peer response. Do not send messages merely to keep a turn alive. If the runtime cannot finish silently, report that limitation instead of creating a reply loop.
 
-## Worktree discipline
+## Worktrees and integration
 
-- Give each agent only its own worktree and files. The task tool may start agents in the controller's directory; use absolute paths and an explicit shell `cwd`.
-- Avoid shared manifests, lockfiles, generated files, and barrel modules during a parallel wave. Assign one owner or resolve those changes before dispatch.
-- Preserve unrelated staged, unstaged, and untracked user work. Do not stage or overwrite it to make a worktree appear clean.
-- Record each task's base, branch, worktree path, agent identity, and review state before context can be lost.
-
-## Integration
-
-- While agents work, do useful local coordination: prepare the next brief, review completed work, or update the ledger. Do not poll idle interfaces or wait while actionable work remains.
-- Accept a result only from the task's named worktree and scope. Review the committed diff and its callers, then merge one task at a time through the integration owner.
-- Run the task's covering checks after its implementation is complete and the combined suite once after a parallel wave merges. Keep test claims tied to observed output.
-- After a contract change, update the shared brief and notify every downstream owner before they code against it.
-- Close out by recording unresolved findings, preserving user changes, and removing only worktrees and branches that contain no unmerged work.
+- For parallel code changes, use one independently owned worktree and branch per implementer, based on the agreed commit. Task agents may start in the controller's checkout: verify the actual checkout and branch before editing, use absolute paths for each mutating file-tool call and explicit shell `cwd`, and inspect the resolved target in tool results. Stop immediately on an out-of-worktree write and correct it without overwriting unrelated changes. Explicitly list any permitted shared report or ledger paths; assign shared manifests and generated files to one owner.
+- Preserve all unrelated staged, unstaged, and untracked work. A report, worktree name, or branch does not prove a commit exists. Record actual committed and uncommitted state and verification separately. If a commit helper fails, do not bypass the required commit mechanism; report the failure and preserve the work.
+- For recovery, first inventory surviving work and appoint one recovery owner and one canonical branch/worktree per task. Do not independently reconstruct the same task in parallel. Keep committed, reviewed, and merged as separate states; preserve a durable diff or worktree if a commit cannot be made.
+- The integration owner reviews each result from its named worktree and its callers, integrates one at a time, and runs the covering checks plus the combined check appropriate to the change. Distinguish an agent's reported test from an independently observed result. Never claim an unverified integration or missing artifact succeeded.
+- On a stop instruction, stop edits, tests, messaging, integration, and cleanup as directed. Record the current agreements, unresolved decisions, live participants, worktrees, uncommitted files, and evidence for resumption. Do not remove a worktree or branch with unmerged or uncommitted work; only clean up after verifying it is safe and authorized.
